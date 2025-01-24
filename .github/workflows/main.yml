@@ -1,48 +1,126 @@
 name: Update Project Dates
 
 on:
-  projects_v2_item:
-    types:
-      - edited # Trigger when a project card is updated
+  schedule:
+     - cron: '0 12,18 * * *'
+  workflow_dispatch:
 
 jobs:
   update-dates:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Update Start and End Dates
+      - name: Update Dates
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_NUMBER: 2
         run: |
-          # Install jq for JSON parsing
-          sudo apt-get update && sudo apt-get install -y jq
+          # Install dependencies
+          sudo apt-get -y install jq
 
-          # Read the event payload
-          payload=$(cat "$GITHUB_EVENT_PATH")
+          # Get repository info
+          REPO_OWNER=${{ github.repository_owner }}
+          REPO_NAME=${{ github.event.repository.name }}
 
-          # Extract the new status and project item ID
-          status=$(echo "$payload" | jq -r '.changes.field_value_changes[0].new_value.name')
-          item_id=$(echo "$payload" | jq -r '.projects_v2_item.node_id')
+          # Get Project ID
+          PROJECT_ID=$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $projectNumber: Int!) {
+              repository(owner: $owner, name: $repo) {
+                projectV2(number: $projectNumber) {
+                  id
+                }
+              }
+            }' -f owner=$REPO_OWNER -f repo=$REPO_NAME -f projectNumber=$PROJECT_NUMBER | jq -r '.data.repository.projectV2.id')
 
-          # Get the current timestamp
-          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          # Get Field IDs
+          FIELDS_JSON=$(gh api graphql -f query='
+            query($projectId: ID!) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2Field {
+                        id
+                        name
+                      }
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f projectId=$PROJECT_ID | jq -r '.data.node.fields.nodes')
 
-          # Check status and update fields
-          if [ "$status" == "In Progress" ]; then
-            echo "Setting Start Date to $timestamp"
-            curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{"field_value": "'"$timestamp"'"}' \
-              https://api.github.com/projects/fields/$item_id/start-date
-          elif [ "$status" == "Done" ]; then
-            echo "Setting End Date to $timestamp"
-            curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{"field_value": "'"$timestamp"'"}' \
-              https://api.github.com/projects/fields/$item_id/end-date
-          else
-            echo "No updates required."
-          fi
+          STATUS_FIELD_ID=$(echo "$FIELDS_JSON" | jq -r '.[] | select(.name == "Status") | .id')
+          START_DATE_FIELD_ID=$(echo "$FIELDS_JSON" | jq -r '.[] | select(.name == "Start Date") | .id')
+          END_DATE_FIELD_ID=$(echo "$FIELDS_JSON" | jq -r '.[] | select(.name == "End Date") | .id')
+
+          # Get all project items
+          ITEMS_JSON=$(gh api graphql -f query='
+            query($projectId: ID!) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  items(first: 100) {
+                    nodes {
+                      id
+                      fieldValues(first: 20) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            name
+                            field { id }
+                          }
+                          ... on ProjectV2ItemFieldDateValue {
+                            date
+                            field { id }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f projectId=$PROJECT_ID | jq -r '.data.node.items.nodes')
+
+          # Process items
+          echo "$ITEMS_JSON" | jq -c '.[]' | while read -r ITEM; do
+            ITEM_ID=$(echo "$ITEM" | jq -r '.id')
+            STATUS=$(echo "$ITEM" | jq -r '.fieldValues.nodes[] | select(.field.id == "'$STATUS_FIELD_ID'") | .name')
+            START_DATE=$(echo "$ITEM" | jq -r '.fieldValues.nodes[] | select(.field.id == "'$START_DATE_FIELD_ID'") | .date')
+            END_DATE=$(echo "$ITEM" | jq -r '.fieldValues.nodes[] | select(.field.id == "'$END_DATE_FIELD_ID'") | .date')
+
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+            if [ "$STATUS" = "In Progress" ] && [ -z "$START_DATE" ]; then
+              echo "Setting Start Date for $ITEM_ID"
+              gh api graphql -f query='
+                mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $date: Date!) {
+                  updateProjectV2ItemFieldValue(
+                    input: {
+                      projectId: $projectId,
+                      itemId: $itemId,
+                      fieldId: $fieldId,
+                      value: { date: $date }
+                    }
+                  ) { clientMutationId }
+                }' -f projectId=$PROJECT_ID -f itemId=$ITEM_ID -f fieldId=$START_DATE_FIELD_ID -f date=$TIMESTAMP
+            fi
+
+            if [ "$STATUS" = "Done" ] && [ -z "$END_DATE" ]; then
+              echo "Setting End Date for $ITEM_ID"
+              gh api graphql -f query='
+                mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $date: Date!) {
+                  updateProjectV2ItemFieldValue(
+                    input: {
+                      projectId: $projectId,
+                      itemId: $itemId,
+                      fieldId: $fieldId,
+                      value: { date: $date }
+                    }
+                  ) { clientMutationId }
+                }' -f projectId=$PROJECT_ID -f itemId=$ITEM_ID -f fieldId=$END_DATE_FIELD_ID -f date=$TIMESTAMP
+            fi
+          done
