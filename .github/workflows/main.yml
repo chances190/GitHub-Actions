@@ -1,0 +1,48 @@
+name: Update Project Dates
+
+on:
+  projects_v2_item:
+    types:
+      - edited # Trigger when a project card is updated
+
+jobs:
+  update-dates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Update Start and End Dates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Install jq for JSON parsing
+          sudo apt-get update && sudo apt-get install -y jq
+
+          # Read the event payload
+          payload=$(cat "$GITHUB_EVENT_PATH")
+
+          # Extract the new status and project item ID
+          status=$(echo "$payload" | jq -r '.changes.field_value_changes[0].new_value.name')
+          item_id=$(echo "$payload" | jq -r '.projects_v2_item.node_id')
+
+          # Get the current timestamp
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Check status and update fields
+          if [ "$status" == "In Progress" ]; then
+            echo "Setting Start Date to $timestamp"
+            curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"field_value": "'"$timestamp"'"}' \
+              https://api.github.com/projects/fields/$item_id/start-date
+          elif [ "$status" == "Done" ]; then
+            echo "Setting End Date to $timestamp"
+            curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"field_value": "'"$timestamp"'"}' \
+              https://api.github.com/projects/fields/$item_id/end-date
+          else
+            echo "No updates required."
+          fi
