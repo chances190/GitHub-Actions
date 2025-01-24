@@ -35,7 +35,7 @@ jobs:
                   id
                 }
               }
-            }' -f user=$USER -f projectNumber=$((PROJECT_NUMBER)) | jq -r '.data.user.projectV2.id')
+            }' -f user=$USER -F projectNumber=$PROJECT_NUMBER | jq -r '.data.user.projectV2.id')
 
           # Debug Project ID
           echo "Project ID: $PROJECT_ID"
