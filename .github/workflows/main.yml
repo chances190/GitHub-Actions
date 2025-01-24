@@ -14,7 +14,7 @@ jobs:
 
       - name: Update Dates
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT }}
           USER: chances190  # Explicitly set the GitHub username
           PROJECT_NUMBER: 2  # Replace with your project number
         run: |
