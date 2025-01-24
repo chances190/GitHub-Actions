@@ -29,13 +29,13 @@ jobs:
 
           # Get Project ID
           PROJECT_ID=$(gh api graphql -f query='
-            query($owner: String!, $repo: String!, $projectNumber: Int!) {
-              repository(owner: $owner, name: $repo) {
+            query($user: String!, $projectNumber: Int!) {
+              user(login: $user) {
                 projectV2(number: $projectNumber) {
                   id
                 }
               }
-            }' -f owner=$REPO_OWNER -f repo=$REPO_NAME -f projectNumber=$PROJECT_NUMBER | jq -r '.data.repository.projectV2.id')
+            }' -f user=$USER -f projectNumber=$((PROJECT_NUMBER)) | jq -r '.data.user.projectV2.id')
 
           # Debug Project ID
           echo "Project ID: $PROJECT_ID"
