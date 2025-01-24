@@ -15,16 +15,14 @@ jobs:
       - name: Update Dates
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
-          PROJECT_NUMBER: 2
+          USER: chances190  # Explicitly set the GitHub username
+          PROJECT_NUMBER: 2  # Replace with your project number
         run: |
           # Install dependencies
           sudo apt-get -y install jq
 
-          # Debug repository info
-          echo "Repository Owner: $REPO_OWNER"
-          echo "Repository Name: $REPO_NAME"
+          # Debug user info
+          echo "User: $USER"
           echo "Project Number: $PROJECT_NUMBER"
 
           # Get Project ID
@@ -35,7 +33,7 @@ jobs:
                   id
                 }
               }
-            }' -f user=$USER -F projectNumber=$PROJECT_NUMBER | jq -r '.data.user.projectV2.id')
+            }' -f user=$USER -f projectNumber=$((PROJECT_NUMBER)) | jq -r '.data.user.projectV2.id')
 
           # Debug Project ID
           echo "Project ID: $PROJECT_ID"
