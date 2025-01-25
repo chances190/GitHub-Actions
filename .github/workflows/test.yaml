@@ -1,12 +1,11 @@
-name: Update Project Dates
+name: Update Project Dates (no PAT)
 
 on:
   schedule:
     - cron: '0 12,18 * * *'
   workflow_dispatch:
 
-permissions:
-  repository-projects: write
+permissions: write-all
 
 jobs:
   update-dates:
